@@ -112,7 +112,7 @@ const BOTTOM_MARGIN: f32 = 40.0;
 const RIGHT_MARGIN: f32 = 40.0;
 const LINK_GAP: f32 = 8.0;
 const PROJECT_URL: &str = "https://github.com/OmChillure/keypop";
-const PROJECT_LINK_LABEL: &str = "github @ https://github.com/OmChillure/keypop";
+const PROJECT_LINK_LABEL: &str = "Dont click here";
 
 pub struct KeyPopApp {
     rx: Receiver<String>,
@@ -255,18 +255,17 @@ impl eframe::App for KeyPopApp {
                 let bar_rect =
                     Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(bar_w, bar_h));
 
-                let link_font = FontId::monospace((self.args.font_size * 0.55).max(12.0));
+                let link_font = FontId::monospace((self.args.font_size * 0.42).max(10.0));
                 let link_w = text_width(ui, PROJECT_LINK_LABEL, &link_font);
                 let link_h = link_font.size + 2.0;
                 let link_rect = Rect::from_min_size(
                     Pos2::new(
-                        bar_rect.right() - link_w,
+                        screen.x - RIGHT_MARGIN - link_w,
                         bar_rect.top() - link_h - LINK_GAP,
                     ),
                     Vec2::new(link_w, link_h),
                 );
-                let link_color =
-                    apply_alpha(Color32::from_rgba_premultiplied(120, 170, 255, 255), alpha);
+                let link_color = apply_alpha(Color32::WHITE, alpha);
                 let link_label = egui::RichText::new(PROJECT_LINK_LABEL)
                     .font(link_font.clone())
                     .color(link_color);
