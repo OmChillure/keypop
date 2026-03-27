@@ -1,4 +1,4 @@
-# keypop
+# [keypop](https://crates.io/crates/keypop)
 
 A transparent keypress overlay for Linux. Shows your recent keypresses in a pill bar — great for screencasts, tutorials, and live demos.
 
@@ -139,6 +139,7 @@ keypop configure
 
 - X: https://x.com/OmChillure
 - LinkedIn: https://www.linkedin.com/in/omchillure
+- GitHub: https://github.com/OmChillure/keypop
 
 ---
 
