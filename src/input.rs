@@ -23,14 +23,11 @@ fn find_keyboards() -> Vec<PathBuf> {
 /// Convert an evdev Key into a human-readable display string
 fn key_name(key: Key) -> Option<String> {
     let name = match key {
-        // --- Modifiers ---
         Key::KEY_LEFTCTRL | Key::KEY_RIGHTCTRL => "Ctrl",
         Key::KEY_LEFTSHIFT | Key::KEY_RIGHTSHIFT => "Shift",
         Key::KEY_LEFTALT => "Alt",
         Key::KEY_RIGHTALT => "AltGr",
         Key::KEY_LEFTMETA | Key::KEY_RIGHTMETA => "Super",
-
-        // --- Special keys ---
         Key::KEY_ESC => "Esc",
         Key::KEY_TAB => "Tab",
         Key::KEY_ENTER => "Enter",
@@ -52,8 +49,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_SCREEN => "PrtSc",
         Key::KEY_PAUSE => "Pause",
         Key::KEY_COMPOSE => "Menu",
-
-        // --- Function keys ---
         Key::KEY_F1 => "F1",
         Key::KEY_F2 => "F2",
         Key::KEY_F3 => "F3",
@@ -66,8 +61,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_F10 => "F10",
         Key::KEY_F11 => "F11",
         Key::KEY_F12 => "F12",
-
-        // --- Letters ---
         Key::KEY_A => "A",
         Key::KEY_B => "B",
         Key::KEY_C => "C",
@@ -94,8 +87,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_X => "X",
         Key::KEY_Y => "Y",
         Key::KEY_Z => "Z",
-
-        // --- Numbers row ---
         Key::KEY_1 => "1",
         Key::KEY_2 => "2",
         Key::KEY_3 => "3",
@@ -106,8 +97,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_8 => "8",
         Key::KEY_9 => "9",
         Key::KEY_0 => "0",
-
-        // --- Punctuation ---
         Key::KEY_MINUS => "-",
         Key::KEY_EQUAL => "=",
         Key::KEY_LEFTBRACE => "[",
@@ -119,8 +108,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_COMMA => ",",
         Key::KEY_DOT => ".",
         Key::KEY_SLASH => "/",
-
-        // --- Numpad ---
         Key::KEY_KP0 => "Num0",
         Key::KEY_KP1 => "Num1",
         Key::KEY_KP2 => "Num2",
@@ -137,8 +124,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_KPSLASH => "Num/",
         Key::KEY_KPDOT => "Num.",
         Key::KEY_KPENTER => "NumEnter",
-
-        // --- Media keys ---
         Key::KEY_MUTE => "Mute",
         Key::KEY_VOLUMEUP => "Vol+",
         Key::KEY_VOLUMEDOWN => "Vol-",
@@ -147,7 +132,6 @@ fn key_name(key: Key) -> Option<String> {
         Key::KEY_PREVIOUSSONG => "Prev",
         Key::KEY_STOPCD => "Stop",
 
-        // Ignore everything else (mouse moves, LEDs, etc.)
         _ => return None,
     };
     Some(name.to_string())
@@ -187,7 +171,6 @@ impl ModState {
         )
     }
 
-    /// Build a display string like "Ctrl+Shift+A"
     fn format_with(&self, key_str: &str) -> String {
         let mut parts: Vec<&str> = Vec::new();
         if self.ctrl {
@@ -208,8 +191,7 @@ impl ModState {
 }
 
 /// Open all keyboard devices and poll them in a round-robin loop.
-/// Sends one string per keypress to the UI thread via `tx`.
-pub fn run(tx: Sender<String>) -> Result<(), Box<dyn Error>> {
+pub fn run(tx: Sender<String>, ctx: egui::Context) -> Result<(), Box<dyn Error>> {
     let paths = find_keyboards();
     if paths.is_empty() {
         return Err(
@@ -232,7 +214,6 @@ pub fn run(tx: Sender<String>) -> Result<(), Box<dyn Error>> {
         return Err("failed to open any keyboard device — permission denied?".into());
     }
 
-    // Set non-blocking so we can poll multiple devices
     for dev in &mut devices {
         unsafe {
             libc::fcntl(dev.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK);
@@ -257,11 +238,9 @@ pub fn run(tx: Sender<String>) -> Result<(), Box<dyn Error>> {
                 let key = Key::new(ev.code());
                 let value = ev.value();
 
-                // value: 1 = pressed, 0 = released, 2 = repeat
                 let pressed = value == 1;
                 let repeated = value == 2;
 
-                // Always update modifier state on press/release
                 mod_state.update(key, pressed || repeated);
 
                 if !pressed {
@@ -277,6 +256,7 @@ pub fn run(tx: Sender<String>) -> Result<(), Box<dyn Error>> {
                     if tx.send(label).is_err() {
                         return Ok(());
                     }
+                    ctx.request_repaint();
                     got_event = true;
                 }
             }

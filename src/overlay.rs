@@ -1,10 +1,61 @@
-use crate::Config;
-use crossbeam_channel::Receiver;
+use crate::{input, Config};
+use crossbeam_channel::{unbounded, Receiver};
+use std::thread;
 use eframe::egui::{self, Color32, FontId, Frame, Pos2, Rect, Rounding, Stroke, Vec2};
 use std::time::{Duration, Instant};
 
+fn x11_screen_size() -> Option<Vec2> {
+    use x11rb::connection::Connection;
+    use x11rb::rust_connection::RustConnection;
+    let (conn, screen_num) = RustConnection::connect(None).ok()?;
+    let s = &conn.setup().roots[screen_num];
+    Some(Vec2::new(s.width_in_pixels as f32, s.height_in_pixels as f32))
+}
+
+fn apply_x11_hints(timeout: Duration) {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::*;
+    use x11rb::rust_connection::RustConnection;
+
+    let Ok((conn, screen_num)) = RustConnection::connect(None) else { return };
+    let root = conn.setup().roots[screen_num].root;
+
+    let intern = |name: &[u8]| -> Option<u32> {
+        conn.intern_atom(false, name).ok()?.reply().ok().map(|r| r.atom)
+    };
+    let get_prop32 = |win: u32, prop: u32, ty: AtomEnum| -> Vec<u32> {
+        conn.get_property(false, win, prop, ty, 0, 1024)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .and_then(|r| r.value32().map(|i| i.collect()))
+            .unwrap_or_default()
+    };
+
+    let Some(net_client_list) = intern(b"_NET_CLIENT_LIST")    else { return };
+    let Some(net_wm_pid)      = intern(b"_NET_WM_PID")         else { return };
+    let Some(net_wm_state)    = intern(b"_NET_WM_STATE")       else { return };
+    let Some(state_above)     = intern(b"_NET_WM_STATE_ABOVE") else { return };
+
+    let our_pid = std::process::id();
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        for win in get_prop32(root, net_client_list, AtomEnum::WINDOW) {
+            if get_prop32(win, net_wm_pid, AtomEnum::CARDINAL).first().copied().unwrap_or(0) != our_pid {
+                continue;
+            }
+            let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, state_above, 0, 1, 0]);
+            let _ = conn.send_event(false, root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, ev);
+            let _ = conn.flush();
+            return;
+        }
+        if Instant::now() >= deadline { return; }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
 // All colors use premultiplied RGBA: for white at partial opacity, R=G=B=A
-const BAR_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 97);
+const BAR_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 210);
 const BAR_BORDER: Color32 = Color32::from_rgba_premultiplied(26, 26, 26, 26);
 const KEY_ACTIVE_BG: Color32 = Color32::from_rgba_premultiplied(36, 36, 36, 36);
 const KEY_ACTIVE_BORDER: Color32 = Color32::from_rgba_premultiplied(56, 56, 56, 56);
@@ -38,10 +89,11 @@ pub struct KeyPopApp {
     keys: Vec<String>,
     last_press: Option<Instant>,
     alpha: f32,
+    screen: Vec2,
 }
 
 impl KeyPopApp {
-    fn new(args: Config, rx: Receiver<String>) -> Self {
+    fn new(args: Config, rx: Receiver<String>, screen: Vec2) -> Self {
         let cap = args.keys as usize;
         Self {
             rx,
@@ -49,6 +101,7 @@ impl KeyPopApp {
             keys: vec![String::new(); cap],
             last_press: None,
             alpha: 0.0,
+            screen,
         }
     }
 }
@@ -85,6 +138,10 @@ impl eframe::App for KeyPopApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            egui::viewport::WindowLevel::AlwaysOnTop,
+        ));
+
         let mut got_new = false;
         while let Ok(key) = self.rx.try_recv() {
             self.keys.remove(0);
@@ -119,12 +176,13 @@ impl eframe::App for KeyPopApp {
 
         if self.alpha > 0.0 {
             ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
-        let screen = ctx.screen_rect();
+        let screen = self.screen;
         let font = FontId::monospace(self.args.font_size);
 
-        // Always render the panel so the transparent background clears each frame
         egui::CentralPanel::default()
             .frame(Frame::none())
             .show(ctx, |ui| {
@@ -160,8 +218,8 @@ impl eframe::App for KeyPopApp {
                 let bar_w = keys_w + seps_w + BAR_PAD_X * 2.0;
                 let bar_h = key_h + BAR_PAD_Y * 2.0;
 
-                let bar_x = screen.width() - bar_w - RIGHT_MARGIN;
-                let bar_y = screen.height()
+                let bar_x = screen.x - bar_w - RIGHT_MARGIN;
+                let bar_y = screen.y
                     - BOTTOM_MARGIN
                     - bar_h
                     - (MARKER_GAP + ARROW_H + MARKER_GAP + TIMER_H);
@@ -296,14 +354,26 @@ impl eframe::App for KeyPopApp {
     }
 }
 
-pub fn run(args: Config, rx: Receiver<String>) {
+pub fn run(args: Config) {
+    if std::env::var("WAYLAND_DISPLAY").is_ok() && std::env::var("DISPLAY").is_ok() {
+        #[allow(deprecated)]
+        unsafe { std::env::remove_var("WAYLAND_DISPLAY") };
+    }
+
+    let screen = x11_screen_size().unwrap_or(Vec2::new(1920.0, 1080.0));
+
+    thread::spawn(|| apply_x11_hints(Duration::from_secs(3)));
+
+    let (tx, rx) = unbounded::<String>();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
             .with_mouse_passthrough(true)
-            .with_maximized(true)
+            .with_inner_size(screen)
+            .with_position(egui::Pos2::ZERO)
             .with_taskbar(false),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
@@ -317,7 +387,19 @@ pub fn run(args: Config, rx: Receiver<String>) {
             visuals.panel_fill = egui::Color32::TRANSPARENT;
             visuals.window_fill = egui::Color32::TRANSPARENT;
             cc.egui_ctx.set_visuals(visuals);
-            Ok(Box::new(KeyPopApp::new(args, rx)))
+
+            let egui_ctx = cc.egui_ctx.clone();
+            thread::Builder::new()
+                .name("keypop-input".into())
+                .spawn(move || {
+                    if let Err(e) = input::run(tx, egui_ctx) {
+                        eprintln!("[keypop] input error: {e}");
+                        eprintln!("[keypop] hint: sudo usermod -aG input $USER  (then re-login)");
+                    }
+                })
+                .expect("failed to spawn input thread");
+
+            Ok(Box::new(KeyPopApp::new(args, rx, screen)))
         }),
     )
     .expect("eframe failed to start");

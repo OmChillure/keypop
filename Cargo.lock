@@ -1853,6 +1853,7 @@ dependencies = [
  "libc",
  "serde",
  "toml",
+ "x11rb",
 ]
 
 [[package]]

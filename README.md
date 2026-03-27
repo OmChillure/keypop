@@ -12,7 +12,7 @@ Works on **X11** and **Wayland**.
 │              ┌──────────────────┐│
 │              │ Ctrl+C │ Tab │ V ││
 │              └──────────────────┘│
-│                     ▲            │
+│                               ▲  │
 │              ════════════════════│
 └──────────────────────────────────┘
 ```
@@ -24,12 +24,12 @@ Works on **X11** and **Wayland**.
 Make sure you have [Rust](https://rustup.rs) installed, then:
 
 ```bash
-cargo install --git https://github.com/YOUR_USERNAME/keypop
+cargo install --git https://github.com/OmChillure/keypop
 ```
 
 This builds a release binary and places it in `~/.cargo/bin/keypop`.
 
-### System dependencies
+### System dependencies [if not already]
 
 ```bash
 # Ubuntu / Debian
@@ -83,6 +83,26 @@ keypop run
 
 Press **Esc** or **Ctrl+C** to quit.
 
+### Command list
+
+```bash
+keypop
+```
+
+Shows:
+
+```text
+..K...K..EEEE..Y...Y..PPPP....OOO...PPPP..
+..K..K...E......Y.Y...P...P..O...O..P...P.
+..KKK....EEE.....Y....PPPP...O...O..PPPP..
+..K..K...E.......Y....P......O...O..P.....
+..K...K..EEEE....Y....P.......OOO...P.....
+-----------------------------------------------
+keypop --help
+keypop run
+keypop configure
+```
+
 ---
 
 ## Options
@@ -104,6 +124,21 @@ Press **Esc** or **Ctrl+C** to quit.
 | **Hyprland** | `windowrulev2 = float, class:^(keypop)$` + `windowrulev2 = pin, class:^(keypop)$` |
 | **i3** | Requires a compositor (e.g. `picom`) for transparency |
 | **GNOME / KDE** | Works out of the box |
+
+---
+
+## Contributing
+
+1. Create an issue for the bug or feature.
+2. Fix it in your branch.
+3. Open a pull request linked to the issue.
+
+---
+
+## Socials
+
+- X: https://x.com/OmChillure
+- LinkedIn: https://www.linkedin.com/in/omchillure
 
 ---
 
