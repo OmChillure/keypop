@@ -219,7 +219,6 @@ impl eframe::App for KeyPopApp {
                 if self.alpha <= 0.0 {
                     return;
                 }
-                let painter = ui.painter();
                 let alpha = self.alpha;
                 let cap = self.keys.len();
 
@@ -276,6 +275,7 @@ impl eframe::App for KeyPopApp {
                     egui::Hyperlink::from_label_and_url(link_label, PROJECT_URL),
                 );
 
+                let painter = ui.painter();
                 painter.rect(
                     bar_rect,
                     Rounding::same(ROUNDING),
