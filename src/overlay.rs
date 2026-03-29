@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, unbounded};
 use eframe::egui::{self, Color32, FontId, Frame, Pos2, Rect, Rounding, Stroke, Vec2};
 use std::thread;
 use std::time::{Duration, Instant};
+use x11rb::wrapper::ConnectionExt;
 
 fn x11_screen_size() -> Option<Vec2> {
     use x11rb::connection::Connection;
@@ -52,6 +53,10 @@ fn apply_x11_hints(timeout: Duration) {
     let Some(state_above) = intern(b"_NET_WM_STATE_ABOVE") else {
         return;
     };
+    let wm_window_type = intern(b"_NET_WM_WINDOW_TYPE");
+    let wm_type_dock = intern(b"_NET_WM_WINDOW_TYPE_DOCK");
+    let state_skip_taskbar = intern(b"_NET_WM_STATE_SKIP_TASKBAR");
+    let state_skip_pager = intern(b"_NET_WM_STATE_SKIP_PAGER");
 
     let our_pid = std::process::id();
     let deadline = Instant::now() + timeout;
@@ -66,6 +71,17 @@ fn apply_x11_hints(timeout: Duration) {
             {
                 continue;
             }
+            // Set window type to dock so it never takes focus
+            if let (Some(wt), Some(wtd)) = (wm_window_type, wm_type_dock) {
+                let _ = conn.change_property32(
+                    PropMode::REPLACE,
+                    win,
+                    wt,
+                    AtomEnum::ATOM,
+                    &[wtd],
+                );
+            }
+            // Set always-on-top
             let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, state_above, 0, 1, 0]);
             let _ = conn.send_event(
                 false,
@@ -73,6 +89,25 @@ fn apply_x11_hints(timeout: Duration) {
                 EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
                 ev,
             );
+            // Skip taskbar and pager
+            if let Some(st) = state_skip_taskbar {
+                let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, st, 0, 1, 0]);
+                let _ = conn.send_event(
+                    false,
+                    root,
+                    EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                    ev,
+                );
+            }
+            if let Some(sp) = state_skip_pager {
+                let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, sp, 0, 1, 0]);
+                let _ = conn.send_event(
+                    false,
+                    root,
+                    EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                    ev,
+                );
+            }
             let _ = conn.flush();
             return;
         }
@@ -112,7 +147,7 @@ const BOTTOM_MARGIN: f32 = 40.0;
 const RIGHT_MARGIN: f32 = 40.0;
 const LINK_GAP: f32 = 8.0;
 const PROJECT_URL: &str = "https://github.com/OmChillure/keypop";
-const PROJECT_LINK_LABEL: &str = "Dont click here";
+const PROJECT_LINK_LABEL: &str = "GitHub: OmChillure/KeyPop";
 
 pub struct KeyPopApp {
     rx: Receiver<String>,
@@ -422,7 +457,7 @@ pub fn run(args: Config) {
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
-            .with_mouse_passthrough(false)
+            .with_mouse_passthrough(true)
             .with_inner_size(screen)
             .with_position(egui::Pos2::ZERO)
             .with_taskbar(false),
