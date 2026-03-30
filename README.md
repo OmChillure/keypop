@@ -17,40 +17,6 @@ Works on **X11** and **Wayland**.
 └──────────────────────────────────┘
 ```
 
----
-
-## Install
-
-Make sure you have [Rust](https://rustup.rs) installed, then:
-
-```bash
-cargo install --git https://github.com/OmChillure/keypop
-```
-
-This builds a release binary and places it in `~/.cargo/bin/keypop`.
-
-### System dependencies [if not already]
-
-```bash
-# Ubuntu / Debian
-sudo apt install libxkbcommon-dev libwayland-dev pkg-config
-
-# Fedora
-sudo dnf install libxkbcommon-devel wayland-devel
-```
-
-### Permissions
-
-keypop reads directly from `/dev/input`. Add yourself to the `input` group — no root required:
-
-```bash
-sudo usermod -aG input $USER
-# log out and back in, then verify:
-groups | grep input
-```
-
----
-
 ## Usage
 
 ### Configure
@@ -124,6 +90,41 @@ keypop configure
 | **Hyprland** | `windowrulev2 = float, class:^(keypop)$` + `windowrulev2 = pin, class:^(keypop)$` |
 | **i3** | Requires a compositor (e.g. `picom`) for transparency |
 | **GNOME / KDE** | Works out of the box |
+
+
+---
+
+## Install
+
+Make sure you have [Rust](https://rustup.rs) installed, then:
+
+```bash
+cargo install --git https://github.com/OmChillure/keypop
+```
+
+This builds a release binary and places it in `~/.cargo/bin/keypop`.
+
+### System dependencies [if not already]
+
+```bash
+# Ubuntu / Debian
+sudo apt install libxkbcommon-dev libwayland-dev pkg-config
+
+# Fedora
+sudo dnf install libxkbcommon-devel wayland-devel
+```
+
+### Permissions
+
+keypop reads directly from `/dev/input`. Add yourself to the `input` group — no root required:
+
+```bash
+sudo usermod -aG input $USER
+# log out and back in, then verify:
+groups | grep input
+```
+
+---
 
 ---
 
