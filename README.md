@@ -19,6 +19,11 @@ Works on **X11** and **Wayland**.
 
 ## Usage
 
+### Download 
+``` bash
+cargo install keypop
+```
+
 ### Configure
 
 Set your preferences interactively. Press **Enter** to keep the value shown in brackets:
@@ -126,7 +131,6 @@ groups | grep input
 
 ---
 
----
 
 ## Contributing
 
