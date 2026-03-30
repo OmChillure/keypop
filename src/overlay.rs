@@ -130,6 +130,8 @@ const KEY_GHOST_TEXT: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 46)
 const MOD_COLOR: Color32 = Color32::from_rgba_premultiplied(123, 159, 255, 255);
 const TIMER_BG: Color32 = Color32::from_rgba_premultiplied(20, 20, 20, 20);
 const TIMER_FG: Color32 = Color32::from_rgba_premultiplied(90, 90, 90, 90);
+const LINK_TEXT: Color32 = Color32::from_rgb(120, 212, 255);
+const LINK_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 220);
 
 const KEY_PAD_X: f32 = 16.0;
 const KEY_PAD_Y: f32 = 10.0;
@@ -146,6 +148,8 @@ const MARKER_GAP: f32 = 4.0;
 const BOTTOM_MARGIN: f32 = 40.0;
 const RIGHT_MARGIN: f32 = 40.0;
 const LINK_GAP: f32 = 8.0;
+const LINK_PAD_X: f32 = 8.0;
+const LINK_PAD_Y: f32 = 4.0;
 const PROJECT_URL: &str = "https://github.com/OmChillure/keypop";
 const PROJECT_LINK_LABEL: &str = "GitHub: OmChillure/KeyPop";
 
@@ -290,24 +294,43 @@ impl eframe::App for KeyPopApp {
                 let bar_rect =
                     Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(bar_w, bar_h));
 
-                let link_font = FontId::monospace((self.args.font_size * 0.42).max(10.0));
+                let link_font = FontId::monospace((self.args.font_size * 0.5).max(8.0));
                 let link_w = text_width(ui, PROJECT_LINK_LABEL, &link_font);
                 let link_h = link_font.size + 2.0;
+                let link_bg_w = link_w + LINK_PAD_X * 2.0;
+                let link_bg_h = link_h + LINK_PAD_Y * 2.0;
                 let link_rect = Rect::from_min_size(
                     Pos2::new(
-                        screen.x - RIGHT_MARGIN - link_w,
-                        bar_rect.top() - link_h - LINK_GAP,
+                        screen.x - RIGHT_MARGIN - link_bg_w,
+                        bar_rect.top() - link_bg_h - LINK_GAP,
                     ),
+                    Vec2::new(link_bg_w, link_bg_h),
+                );
+                let link_text_rect = Rect::from_min_size(
+                    Pos2::new(link_rect.left() + LINK_PAD_X, link_rect.top() + LINK_PAD_Y),
                     Vec2::new(link_w, link_h),
                 );
-                let link_color = apply_alpha(Color32::WHITE, alpha);
+                ui.painter().rect(
+                    link_rect,
+                    Rounding::same(ROUNDING),
+                    apply_alpha(LINK_BG, alpha),
+                    Stroke::NONE,
+                );
+                let link_click =
+                    ui.interact(link_rect, ui.id().with("project_link_pill"), egui::Sense::click());
+                if link_click.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if link_click.clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(PROJECT_URL));
+                }
+
+                let link_color = apply_alpha(LINK_TEXT, alpha);
                 let link_label = egui::RichText::new(PROJECT_LINK_LABEL)
                     .font(link_font.clone())
+                    .strong()
                     .color(link_color);
-                let _ = ui.put(
-                    link_rect,
-                    egui::Hyperlink::from_label_and_url(link_label, PROJECT_URL),
-                );
+                let _ = ui.put(link_text_rect, egui::Label::new(link_label));
 
                 let painter = ui.painter();
                 painter.rect(
