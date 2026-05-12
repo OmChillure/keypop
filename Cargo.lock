@@ -1852,6 +1852,7 @@ dependencies = [
  "evdev",
  "libc",
  "serde",
+ "serde_json",
  "toml",
  "x11rb",
 ]

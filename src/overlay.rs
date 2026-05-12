@@ -1,9 +1,10 @@
 use crate::{Config, input};
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use eframe::egui::{self, Color32, FontId, Frame, Pos2, Rect, Rounding, Stroke, Vec2};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use x11rb::wrapper::ConnectionExt;
 
 fn x11_screen_size() -> Option<Vec2> {
     use x11rb::connection::Connection;
@@ -53,10 +54,6 @@ fn apply_x11_hints(timeout: Duration) {
     let Some(state_above) = intern(b"_NET_WM_STATE_ABOVE") else {
         return;
     };
-    let wm_window_type = intern(b"_NET_WM_WINDOW_TYPE");
-    let wm_type_dock = intern(b"_NET_WM_WINDOW_TYPE_DOCK");
-    let state_skip_taskbar = intern(b"_NET_WM_STATE_SKIP_TASKBAR");
-    let state_skip_pager = intern(b"_NET_WM_STATE_SKIP_PAGER");
 
     let our_pid = std::process::id();
     let deadline = Instant::now() + timeout;
@@ -71,17 +68,6 @@ fn apply_x11_hints(timeout: Duration) {
             {
                 continue;
             }
-            // Set window type to dock so it never takes focus
-            if let (Some(wt), Some(wtd)) = (wm_window_type, wm_type_dock) {
-                let _ = conn.change_property32(
-                    PropMode::REPLACE,
-                    win,
-                    wt,
-                    AtomEnum::ATOM,
-                    &[wtd],
-                );
-            }
-            // Set always-on-top
             let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, state_above, 0, 1, 0]);
             let _ = conn.send_event(
                 false,
@@ -89,25 +75,6 @@ fn apply_x11_hints(timeout: Duration) {
                 EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
                 ev,
             );
-            // Skip taskbar and pager
-            if let Some(st) = state_skip_taskbar {
-                let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, st, 0, 1, 0]);
-                let _ = conn.send_event(
-                    false,
-                    root,
-                    EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-                    ev,
-                );
-            }
-            if let Some(sp) = state_skip_pager {
-                let ev = ClientMessageEvent::new(32, win, net_wm_state, [1u32, sp, 0, 1, 0]);
-                let _ = conn.send_event(
-                    false,
-                    root,
-                    EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-                    ev,
-                );
-            }
             let _ = conn.flush();
             return;
         }
@@ -130,8 +97,6 @@ const KEY_GHOST_TEXT: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 46)
 const MOD_COLOR: Color32 = Color32::from_rgba_premultiplied(123, 159, 255, 255);
 const TIMER_BG: Color32 = Color32::from_rgba_premultiplied(20, 20, 20, 20);
 const TIMER_FG: Color32 = Color32::from_rgba_premultiplied(90, 90, 90, 90);
-const LINK_TEXT: Color32 = Color32::from_rgb(120, 212, 255);
-const LINK_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 220);
 
 const KEY_PAD_X: f32 = 16.0;
 const KEY_PAD_Y: f32 = 10.0;
@@ -148,10 +113,18 @@ const MARKER_GAP: f32 = 4.0;
 const BOTTOM_MARGIN: f32 = 40.0;
 const RIGHT_MARGIN: f32 = 40.0;
 const LINK_GAP: f32 = 8.0;
-const LINK_PAD_X: f32 = 8.0;
-const LINK_PAD_Y: f32 = 4.0;
 const PROJECT_URL: &str = "https://github.com/OmChillure/keypop";
-const PROJECT_LINK_LABEL: &str = "GitHub: OmChillure/KeyPop";
+const PROJECT_LINK_LABEL: &str = "github @ https://github.com/OmChillure/keypop";
+
+const REC_DOT_RADIUS: f32 = 5.0;
+const REC_TEXT_GAP: f32 = 6.0;
+const REC_MARGIN_RIGHT: f32 = 20.0;
+const REC_MARGIN_BOTTOM: f32 = 8.0;
+
+pub struct RecordingIndicator {
+    pub is_active: Arc<AtomicBool>,
+    pub started: Instant,
+}
 
 pub struct KeyPopApp {
     rx: Receiver<String>,
@@ -160,10 +133,11 @@ pub struct KeyPopApp {
     last_press: Option<Instant>,
     alpha: f32,
     screen: Vec2,
+    recording: Option<RecordingIndicator>,
 }
 
 impl KeyPopApp {
-    fn new(args: Config, rx: Receiver<String>, screen: Vec2) -> Self {
+    pub fn new(args: Config, rx: Receiver<String>, screen: Vec2) -> Self {
         let cap = args.keys as usize;
         Self {
             rx,
@@ -172,7 +146,13 @@ impl KeyPopApp {
             last_press: None,
             alpha: 0.0,
             screen,
+            recording: None,
         }
+    }
+
+    pub fn with_recording(mut self, indicator: RecordingIndicator) -> Self {
+        self.recording = Some(indicator);
+        self
     }
 }
 
@@ -294,43 +274,25 @@ impl eframe::App for KeyPopApp {
                 let bar_rect =
                     Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(bar_w, bar_h));
 
-                let link_font = FontId::monospace((self.args.font_size * 0.5).max(8.0));
+                let link_font = FontId::monospace((self.args.font_size * 0.55).max(12.0));
                 let link_w = text_width(ui, PROJECT_LINK_LABEL, &link_font);
                 let link_h = link_font.size + 2.0;
-                let link_bg_w = link_w + LINK_PAD_X * 2.0;
-                let link_bg_h = link_h + LINK_PAD_Y * 2.0;
                 let link_rect = Rect::from_min_size(
                     Pos2::new(
-                        screen.x - RIGHT_MARGIN - link_bg_w,
-                        bar_rect.top() - link_bg_h - LINK_GAP,
+                        bar_rect.right() - link_w,
+                        bar_rect.top() - link_h - LINK_GAP,
                     ),
-                    Vec2::new(link_bg_w, link_bg_h),
-                );
-                let link_text_rect = Rect::from_min_size(
-                    Pos2::new(link_rect.left() + LINK_PAD_X, link_rect.top() + LINK_PAD_Y),
                     Vec2::new(link_w, link_h),
                 );
-                ui.painter().rect(
-                    link_rect,
-                    Rounding::same(ROUNDING),
-                    apply_alpha(LINK_BG, alpha),
-                    Stroke::NONE,
-                );
-                let link_click =
-                    ui.interact(link_rect, ui.id().with("project_link_pill"), egui::Sense::click());
-                if link_click.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if link_click.clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(PROJECT_URL));
-                }
-
-                let link_color = apply_alpha(LINK_TEXT, alpha);
+                let link_color =
+                    apply_alpha(Color32::from_rgba_premultiplied(120, 170, 255, 255), alpha);
                 let link_label = egui::RichText::new(PROJECT_LINK_LABEL)
                     .font(link_font.clone())
-                    .strong()
                     .color(link_color);
-                let _ = ui.put(link_text_rect, egui::Label::new(link_label));
+                let _ = ui.put(
+                    link_rect,
+                    egui::Hyperlink::from_label_and_url(link_label, PROJECT_URL),
+                );
 
                 let painter = ui.painter();
                 painter.rect(
@@ -457,11 +419,54 @@ impl eframe::App for KeyPopApp {
                     Rounding::same(1.0),
                     apply_alpha(TIMER_FG, alpha),
                 );
+
+                // Recording indicator
+                if let Some(ref rec) = self.recording {
+                    if rec.is_active.load(Ordering::Relaxed) {
+                        let elapsed = rec.started.elapsed();
+                        let secs = elapsed.as_secs();
+                        let mins = secs / 60;
+                        let time_str = format!("REC {:02}:{:02}", mins, secs % 60);
+
+                        let rec_font = FontId::monospace((self.args.font_size * 0.6).max(12.0));
+                        let text_w = text_width(ui, &time_str, &rec_font);
+
+                        let pulse = ((elapsed.as_secs_f32() * 2.0).sin() * 0.5 + 0.5)
+                            .clamp(0.3, 1.0);
+                        let rec_red = Color32::from_rgba_premultiplied(
+                            (220.0 * pulse) as u8,
+                            (40.0 * pulse) as u8,
+                            (40.0 * pulse) as u8,
+                            (255.0 * pulse) as u8,
+                        );
+
+                        let dot_x = bar_rect.right() - REC_MARGIN_RIGHT - text_w
+                            - REC_TEXT_GAP - REC_DOT_RADIUS;
+                        let dot_y = timer_y + TIMER_H + REC_MARGIN_BOTTOM + REC_DOT_RADIUS;
+
+                        painter.circle_filled(Pos2::new(dot_x, dot_y), REC_DOT_RADIUS, rec_red);
+                        painter.text(
+                            Pos2::new(dot_x + REC_DOT_RADIUS + REC_TEXT_GAP, dot_y - rec_font.size * 0.5),
+                            egui::Align2::LEFT_TOP,
+                            &time_str,
+                            rec_font,
+                            rec_red,
+                        );
+                    }
+                }
             });
     }
 }
 
-pub fn run(args: Config) {
+/// Shared overlay setup. Calls `build_app` with the (tx, egui_ctx) so the
+/// caller can spawn whatever input / recording thread it needs and return
+/// the final `KeyPopApp`.
+pub fn run_with_input<F>(args: Config, build_app: F)
+where
+    F: FnOnce(Sender<String>, egui::Context, Config, Receiver<String>, Vec2) -> KeyPopApp
+        + Send
+        + 'static,
+{
     if std::env::var("WAYLAND_DISPLAY").is_ok() && std::env::var("DISPLAY").is_ok() {
         #[allow(deprecated)]
         unsafe {
@@ -480,7 +485,7 @@ pub fn run(args: Config) {
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
-            .with_mouse_passthrough(true)
+            .with_mouse_passthrough(false)
             .with_inner_size(screen)
             .with_position(egui::Pos2::ZERO)
             .with_taskbar(false),
@@ -498,18 +503,25 @@ pub fn run(args: Config) {
             cc.egui_ctx.set_visuals(visuals);
 
             let egui_ctx = cc.egui_ctx.clone();
-            thread::Builder::new()
-                .name("keypop-input".into())
-                .spawn(move || {
-                    if let Err(e) = input::run(tx, egui_ctx) {
-                        eprintln!("[keypop] input error: {e}");
-                        eprintln!("[keypop] hint: sudo usermod -aG input $USER  (then re-login)");
-                    }
-                })
-                .expect("failed to spawn input thread");
-
-            Ok(Box::new(KeyPopApp::new(args, rx, screen)))
+            let app = build_app(tx, egui_ctx, args, rx, screen);
+            Ok(Box::new(app))
         }),
     )
     .expect("eframe failed to start");
+}
+
+pub fn run(args: Config) {
+    run_with_input(args, |tx, egui_ctx, args, rx, screen| {
+        thread::Builder::new()
+            .name("keypop-input".into())
+            .spawn(move || {
+                if let Err(e) = input::run(tx, egui_ctx) {
+                    eprintln!("[keypop] input error: {e}");
+                    eprintln!("[keypop] hint: sudo usermod -aG input $USER  (then re-login)");
+                }
+            })
+            .expect("failed to spawn input thread");
+
+        KeyPopApp::new(args, rx, screen)
+    });
 }

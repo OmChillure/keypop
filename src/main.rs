@@ -1,5 +1,6 @@
 mod input;
 mod overlay;
+mod record;
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,26 @@ pub struct Config {
     pub opacity: f32,
     pub display_time: f32,
     pub keys: u8,
+    #[serde(default = "default_record_dir")]
+    pub record_dir: String,
+    #[serde(default = "default_stop_hotkey")]
+    pub stop_hotkey: String,
+}
+
+fn default_record_dir() -> String {
+    dirs::video_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join("Videos")
+        })
+        .join("Screencasts")
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn default_stop_hotkey() -> String {
+    "Ctrl+S".to_string()
 }
 
 impl Default for Config {
@@ -22,6 +43,8 @@ impl Default for Config {
             opacity: 0.75,
             display_time: 3.0,
             keys: 3,
+            record_dir: default_record_dir(),
+            stop_hotkey: default_stop_hotkey(),
         }
     }
 }
@@ -64,6 +87,22 @@ struct Cli {
 enum Commands {
     Configure,
     Run,
+    Record {
+        #[command(subcommand)]
+        action: RecordAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecordAction {
+    /// Start recording keystrokes with timing data
+    Start {
+        /// Override stop hotkey (default from config, e.g. "Ctrl+S")
+        #[arg(long)]
+        stop_hotkey: Option<String>,
+    },
+    /// Stop a running recording session
+    Stop,
 }
 
 fn cmd_configure() {
@@ -91,11 +130,16 @@ fn cmd_configure() {
         "must be 1–5",
     );
 
+    let record_dir = prompt_string("Recording directory", &cur.record_dir);
+    let stop_hotkey = prompt_string("Stop recording hotkey", &cur.stop_hotkey);
+
     let cfg = Config {
         font_size,
         opacity,
         display_time,
         keys,
+        record_dir,
+        stop_hotkey,
     };
     match save_config(&cfg) {
         Ok(()) => println!("\nSaved to {}", config_path().display()),
@@ -142,8 +186,34 @@ fn prompt_u8(label: &str, current: u8, validate: impl Fn(u8) -> bool, hint: &str
     }
 }
 
+fn prompt_string(label: &str, current: &str) -> String {
+    loop {
+        print!("  {} [{}]: ", label, current);
+        io::stdout().flush().unwrap();
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).unwrap();
+        let s = line.trim();
+        if s.is_empty() {
+            return current.to_string();
+        }
+        return s.to_string();
+    }
+}
+
 fn cmd_run() {
     overlay::run(load_config());
+}
+
+fn cmd_record_start(stop_hotkey_override: Option<String>) {
+    let mut cfg = load_config();
+    if let Some(hk) = stop_hotkey_override {
+        cfg.stop_hotkey = hk;
+    }
+    record::start(cfg);
+}
+
+fn cmd_record_stop() {
+    record::stop();
 }
 
 fn cmd_menu() {
@@ -156,12 +226,18 @@ fn cmd_menu() {
     println!("keypop --help");
     println!("keypop run");
     println!("keypop configure");
+    println!("keypop record start [--stop-hotkey \"Ctrl+S\"]");
+    println!("keypop record stop");
 }
 
 fn main() {
     match Cli::parse().command {
         Some(Commands::Configure) => cmd_configure(),
         Some(Commands::Run) => cmd_run(),
+        Some(Commands::Record { action }) => match action {
+            RecordAction::Start { stop_hotkey } => cmd_record_start(stop_hotkey),
+            RecordAction::Stop => cmd_record_stop(),
+        },
         None => cmd_menu(),
     }
 }

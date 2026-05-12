@@ -6,7 +6,7 @@ use std::path::PathBuf;
 extern crate libc;
 
 /// Find all keyboard devices under /dev/input
-fn find_keyboards() -> Vec<PathBuf> {
+pub fn find_keyboards() -> Vec<PathBuf> {
     let mut found = Vec::new();
     let devices = evdev::enumerate();
     for (path, device) in devices {
@@ -21,7 +21,7 @@ fn find_keyboards() -> Vec<PathBuf> {
 }
 
 /// Convert an evdev Key into a human-readable display string
-fn key_name(key: Key) -> Option<String> {
+pub fn key_name(key: Key) -> Option<String> {
     let name = match key {
         Key::KEY_LEFTCTRL | Key::KEY_RIGHTCTRL => "Ctrl",
         Key::KEY_LEFTSHIFT | Key::KEY_RIGHTSHIFT => "Shift",
@@ -138,16 +138,16 @@ fn key_name(key: Key) -> Option<String> {
 }
 
 /// Track which modifier keys are currently held
-#[derive(Default)]
-struct ModState {
-    ctrl: bool,
-    shift: bool,
-    alt: bool,
-    super_: bool,
+#[derive(Default, Clone, Debug)]
+pub struct ModState {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub super_: bool,
 }
 
 impl ModState {
-    fn update(&mut self, key: Key, pressed: bool) {
+    pub fn update(&mut self, key: Key, pressed: bool) {
         match key {
             Key::KEY_LEFTCTRL | Key::KEY_RIGHTCTRL => self.ctrl = pressed,
             Key::KEY_LEFTSHIFT | Key::KEY_RIGHTSHIFT => self.shift = pressed,
@@ -157,7 +157,7 @@ impl ModState {
         }
     }
 
-    fn is_modifier(key: Key) -> bool {
+    pub fn is_modifier(key: Key) -> bool {
         matches!(
             key,
             Key::KEY_LEFTCTRL
@@ -171,7 +171,7 @@ impl ModState {
         )
     }
 
-    fn format_with(&self, key_str: &str) -> String {
+    pub fn format_with(&self, key_str: &str) -> String {
         let mut parts: Vec<&str> = Vec::new();
         if self.ctrl {
             parts.push("Ctrl");
