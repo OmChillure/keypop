@@ -1,3 +1,4 @@
+mod coach;
 mod input;
 mod overlay;
 mod record;
@@ -87,6 +88,21 @@ struct Cli {
 enum Commands {
     Configure,
     Run,
+    /// Overlay + typing coach panel with live stats and keyboard heatmap
+    Coach {
+        /// Target CPM threshold for the streak counter
+        #[arg(long, default_value = "200")]
+        target_cpm: u32,
+        /// Keyboard layout
+        #[arg(long, default_value = "qwerty")]
+        layout: String,
+        /// Hide the keyboard heatmap
+        #[arg(long)]
+        no_heatmap: bool,
+        /// Hide the keypress pill bar
+        #[arg(long)]
+        no_fingers: bool,
+    },
     Record {
         #[command(subcommand)]
         action: RecordAction,
@@ -204,6 +220,16 @@ fn cmd_run() {
     overlay::run(load_config());
 }
 
+fn cmd_coach(target_cpm: u32, show_heatmap: bool, show_fingers: bool) {
+    let cfg = load_config();
+    let coach_cfg = coach::CoachConfig {
+        target_cpm,
+        show_heatmap,
+        show_fingers,
+    };
+    coach::run(cfg, coach_cfg);
+}
+
 fn cmd_record_start(stop_hotkey_override: Option<String>) {
     let mut cfg = load_config();
     if let Some(hk) = stop_hotkey_override {
@@ -225,6 +251,7 @@ fn cmd_menu() {
     println!("-----------------------------------------------");
     println!("keypop --help");
     println!("keypop run");
+    println!("keypop coach [--target-cpm 200] [--no-heatmap] [--no-fingers]");
     println!("keypop configure");
     println!("keypop record start [--stop-hotkey \"Ctrl+S\"]");
     println!("keypop record stop");
@@ -234,6 +261,12 @@ fn main() {
     match Cli::parse().command {
         Some(Commands::Configure) => cmd_configure(),
         Some(Commands::Run) => cmd_run(),
+        Some(Commands::Coach {
+            target_cpm,
+            layout: _,
+            no_heatmap,
+            no_fingers,
+        }) => cmd_coach(target_cpm, !no_heatmap, !no_fingers),
         Some(Commands::Record { action }) => match action {
             RecordAction::Start { stop_hotkey } => cmd_record_start(stop_hotkey),
             RecordAction::Stop => cmd_record_stop(),

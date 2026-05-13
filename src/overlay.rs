@@ -134,6 +134,7 @@ pub struct KeyPopApp {
     alpha: f32,
     screen: Vec2,
     recording: Option<RecordingIndicator>,
+    pub coach: Option<crate::coach::CoachState>,
 }
 
 impl KeyPopApp {
@@ -147,11 +148,17 @@ impl KeyPopApp {
             alpha: 0.0,
             screen,
             recording: None,
+            coach: None,
         }
     }
 
     pub fn with_recording(mut self, indicator: RecordingIndicator) -> Self {
         self.recording = Some(indicator);
+        self
+    }
+
+    pub fn with_coach(mut self, coach: crate::coach::CoachState) -> Self {
+        self.coach = Some(coach);
         self
     }
 }
@@ -173,7 +180,7 @@ fn text_width(ui: &egui::Ui, text: &str, font: &FontId) -> f32 {
     })
 }
 
-fn apply_alpha(c: Color32, alpha: f32) -> Color32 {
+pub fn apply_alpha(c: Color32, alpha: f32) -> Color32 {
     Color32::from_rgba_premultiplied(
         (c.r() as f32 * alpha) as u8,
         (c.g() as f32 * alpha) as u8,
@@ -194,6 +201,9 @@ impl eframe::App for KeyPopApp {
 
         let mut got_new = false;
         while let Ok(key) = self.rx.try_recv() {
+            if let Some(ref mut coach) = self.coach {
+                coach.record_press(&key);
+            }
             self.keys.remove(0);
             self.keys.push(key);
             got_new = true;
@@ -225,6 +235,8 @@ impl eframe::App for KeyPopApp {
 
         if self.alpha > 0.0 {
             ctx.request_repaint();
+        } else if self.coach.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
@@ -235,11 +247,15 @@ impl eframe::App for KeyPopApp {
         egui::CentralPanel::default()
             .frame(Frame::none())
             .show(ctx, |ui| {
-                if self.alpha <= 0.0 {
+                let has_coach = self.coach.is_some();
+                let show_bar = self.coach.as_ref().map_or(true, |c| c.config.show_fingers);
+
+                if self.alpha <= 0.0 && !has_coach {
                     return;
                 }
                 let alpha = self.alpha;
                 let cap = self.keys.len();
+                let font_size = self.args.font_size;
 
                 let key_sizes: Vec<Vec2> = self
                     .keys
@@ -273,6 +289,19 @@ impl eframe::App for KeyPopApp {
                     - (MARKER_GAP + ARROW_H + MARKER_GAP + TIMER_H);
                 let bar_rect =
                     Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(bar_w, bar_h));
+
+                // Draw coach panel above the pill bar
+                if let Some(ref mut coach) = self.coach {
+                    let lf = FontId::monospace((font_size * 0.55).max(12.0));
+                    let lh = lf.size + 2.0;
+                    let coach_bottom = bar_rect.top() - lh - LINK_GAP - 8.0;
+                    let coach_right = screen.x - RIGHT_MARGIN;
+                    coach.draw(ui, coach_bottom, coach_right, font_size);
+                }
+
+                if !show_bar || alpha <= 0.0 {
+                    return;
+                }
 
                 let link_font = FontId::monospace((self.args.font_size * 0.55).max(12.0));
                 let link_w = text_width(ui, PROJECT_LINK_LABEL, &link_font);
